@@ -109,9 +109,23 @@ impl<'a> Source for Postgres<'a> {
         dump_args.push(self.database);
 
         // TODO: as for mysql we can exclude tables directly here so we can remove the skip_tables_map checks
-        let mut process = Command::new("pg_dump")
-            .env("PGPASSWORD", self.password)
-            .args(dump_args)
+        let mut dump_cmd = Command::new("pg_dump");
+        dump_cmd.args(dump_args);
+
+        let mut cmd = match options.ssh {
+            Some(ssh_config) => {
+                let mut envs = HashMap::new();
+                envs.insert("PGPASSWORD", self.password);
+
+                ssh_config.ssh_command(&dump_cmd, &envs)
+            },
+            None => {
+                dump_cmd.env("PGPASSWORD", self.password);
+                dump_cmd
+            },
+        };
+
+        let mut process = cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
@@ -509,6 +523,7 @@ mod tests {
             skip_config: &vec![],
             database_subset: &None,
             only_tables: &vec![],
+            ssh: &None,
         };
 
         assert!(p.read(source_options, |original_query, query| {}).is_ok());
@@ -521,6 +536,7 @@ mod tests {
             skip_config: &vec![],
             database_subset: &None,
             only_tables: &vec![],
+            ssh: &None,
         };
 
         assert!(p.read(source_options, |original_query, query| {}).is_err());
@@ -536,6 +552,7 @@ mod tests {
             skip_config: &vec![],
             database_subset: &None,
             only_tables: &vec![],
+            ssh: &None,
         };
 
         let _ = p.read(source_options, |original_query, query| {
@@ -662,6 +679,7 @@ mod tests {
             skip_config: &vec![],
             database_subset: &None,
             only_tables: &vec![],
+            ssh: &None,
         };
 
         let _ = p.read(source_options, |original_query, query| {
@@ -703,6 +721,7 @@ mod tests {
             skip_config: &skip_config,
             database_subset: &None,
             only_tables: &vec![],
+            ssh: &None,
         };
 
         let _ = p.read(source_options, |_original_query, query| {
@@ -754,6 +773,7 @@ mod tests {
                 passthrough_tables: None,
             }),
             only_tables: &vec![],
+            ssh: &None,
         };
 
         let mut rows_percent_50 = vec![];
@@ -791,6 +811,7 @@ mod tests {
                 passthrough_tables: None,
             }),
             only_tables: &vec![],
+            ssh: &None,
         };
 
         let mut rows_percent_30 = vec![];

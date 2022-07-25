@@ -103,8 +103,15 @@ impl<'a> Source for Mysql<'a> {
 
         dump_args.append(&mut only_tables_args);
 
-        let mut process = Command::new("mysqldump")
-            .args(dump_args)
+        let mut dump_cmd = Command::new("mysqldump");
+        dump_cmd.args(dump_args);
+
+        let mut cmd = match options.ssh {
+            Some(ssh_config) => ssh_config.ssh_command(&dump_cmd, &HashMap::new()),
+            None => dump_cmd,
+        };
+
+        let mut process = cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
@@ -379,6 +386,7 @@ mod tests {
             skip_config: &vec![],
             database_subset: &None,
             only_tables: &vec![],
+            ssh: &None,
         };
 
         assert!(p.read(source_options, |_original_query, _query| {}).is_ok());
@@ -391,6 +399,7 @@ mod tests {
             skip_config: &vec![],
             database_subset: &None,
             only_tables: &vec![],
+            ssh: &None,
         };
         assert!(p
             .read(source_options, |_original_query, _query| {})
@@ -407,6 +416,7 @@ mod tests {
             skip_config: &vec![],
             database_subset: &None,
             only_tables: &vec![],
+            ssh: &None,
         };
         let _ = p.read(source_options, |original_query, query| {
             assert!(original_query.data().len() > 0);

@@ -132,6 +132,7 @@ where
                 skip_config: &skip_config,
                 database_subset: &source.database_subset,
                 only_tables: &only_tables_config,
+                ssh: &source.ssh,
             };
 
             match args.source_type.as_ref().map(|x| x.as_str()) {

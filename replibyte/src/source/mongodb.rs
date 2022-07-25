@@ -43,14 +43,21 @@ impl<'a> Source for MongoDB<'a> {
             todo!("database subset not supported yet for MongoDB source")
         }
 
-        let mut process = Command::new("mongodump")
-            .args([
-                "--uri",
-                self.uri,
-                "--db",
-                self.database,
-                "--archive", // dump to stdin
-            ])
+        let mut dump_cmd =  Command::new("mongodump");
+        dump_cmd.args([
+            "--uri",
+            self.uri,
+            "--db",
+            self.database,
+            "--archive", // dump to stdin
+        ]);
+
+        let mut cmd = match options.ssh {
+            Some(ssh_config) => ssh_config.ssh_command(&dump_cmd, &HashMap::new()),
+            None => dump_cmd,
+        };
+
+        let mut process = cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
@@ -307,6 +314,7 @@ mod tests {
             skip_config: &vec![],
             database_subset: &None,
             only_tables: &vec![],
+            ssh: &None,
         };
 
         assert!(p.read(source_options, |_, _| {}).is_ok());
@@ -319,6 +327,7 @@ mod tests {
             skip_config: &vec![],
             database_subset: &None,
             only_tables: &vec![],
+            ssh: &None,
         };
 
         assert!(p.read(source_options, |_, _| {}).is_err());
@@ -334,6 +343,7 @@ mod tests {
             skip_config: &vec![],
             database_subset: &None,
             only_tables: &vec![],
+            ssh: &None,
         };
 
         p.read(source_options, |original_query, query| {

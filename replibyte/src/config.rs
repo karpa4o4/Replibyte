@@ -8,10 +8,13 @@ use crate::transformer::random::RandomTransformer;
 use crate::transformer::redacted::{RedactedTransformer, RedactedTransformerOptions};
 use crate::transformer::transient::TransientTransformer;
 use crate::transformer::Transformer;
+use crate::utils::binary_exists;
 use percent_encoding::percent_decode_str;
 use serde;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
+use std::process::Command;
 use url::Url;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
@@ -199,6 +202,7 @@ impl DatastoreLocalDiskConfig {
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct SourceConfig {
     pub connection_uri: Option<String>,
+    pub ssh: Option<SshConfig>,
     pub compression: Option<bool>,
     pub transformers: Option<Vec<TransformerConfig>>,
     pub skip: Option<Vec<SkipConfig>>,
@@ -372,6 +376,62 @@ impl TransformerTypeConfig {
         };
 
         transformer
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+pub struct SshConfig {
+    pub destination: String,
+    pub port: Option<u16>,
+    pub password: String,
+}
+
+impl SshConfig {
+    fn check_binaries() -> Result<(), Error> {
+        let _ = binary_exists("sshpass")?;
+        let _ = binary_exists("ssh")?;
+
+        Ok(())
+    }
+
+    pub fn port(&self) -> String {
+        match self.port {
+            Some(port) => port.to_string(),
+            None => String::from("22"),
+        }
+    }
+
+    pub fn ssh_command(&self, cmd: &Command, envs: &HashMap<&str, &str>) -> Command {
+        if let Err(err) = SshConfig::check_binaries() {
+            eprintln!("{}", err);
+        }
+
+        let env_args: Vec<String> = envs.iter()
+            .map(|env| format!("{}={}", env.0, env.1))
+            .collect();
+        let mut env_args: Vec<&str> = env_args.iter()
+            .map(String::as_str)
+            .collect();
+
+        let mut args = vec![
+            "-p",
+            self.password.as_str(),
+            "ssh",
+            self.destination.as_str(),
+        ];
+
+        let port = self.port();
+        args.append(&mut vec!["-p", port.as_str()]);
+
+        args.append(&mut env_args);
+
+        let cmd_line = format!("{:?}", cmd);
+        args.push(cmd_line.as_str());
+
+        let mut ssh_cmd = Command::new("sshpass");
+        ssh_cmd.args(args);
+
+        ssh_cmd
     }
 }
 
