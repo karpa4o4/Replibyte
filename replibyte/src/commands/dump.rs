@@ -451,6 +451,7 @@ where
                         username.as_str(),
                         password.as_str(),
                         destination.wipe_database.unwrap_or(true),
+                        destination.ssh,
                     );
 
                     let task = FullRestoreTask::new(&mut postgres, datastore, options);

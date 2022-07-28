@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::io::{Error, ErrorKind, Write};
 use std::process::{Command, Stdio};
 
+use crate::config::SshConfig;
 use crate::connector::Connector;
 use crate::destination::Destination;
 use crate::types::Bytes;
@@ -13,6 +15,7 @@ pub struct Postgres<'a> {
     username: &'a str,
     password: &'a str,
     wipe_database: bool,
+    ssh_config: Option<SshConfig>,
 }
 
 impl<'a> Postgres<'a> {
@@ -23,6 +26,7 @@ impl<'a> Postgres<'a> {
         username: &'a str,
         password: &'a str,
         wipe_database: bool,
+        ssh_config: Option<SshConfig>,
     ) -> Self {
         Postgres {
             host,
@@ -31,6 +35,7 @@ impl<'a> Postgres<'a> {
             username,
             password,
             wipe_database,
+            ssh_config,
         }
     }
 }
@@ -43,20 +48,34 @@ impl<'a> Connector for Postgres<'a> {
             let s_port = self.port.to_string();
             let wipe_db_query = wipe_database_query(self.username);
 
-            let exit_status = Command::new("psql")
-                .env("PGPASSWORD", self.password)
-                .args([
-                    "-h",
-                    self.host,
-                    "-p",
-                    s_port.as_str(),
-                    "-d",
-                    self.database,
-                    "-U",
-                    self.username,
-                    "-c",
-                    wipe_db_query.as_str(),
-                ])
+            let mut wipe_db_cmd = Command::new("psql");
+            wipe_db_cmd.args([
+                "-h",
+                self.host,
+                "-p",
+                s_port.as_str(),
+                "-d",
+                self.database,
+                "-U",
+                self.username,
+                "-c",
+                wipe_db_query.as_str(),
+            ]);
+
+            let mut cmd = match &self.ssh_config {
+                Some(ssh_config) => {
+                    let mut envs = HashMap::new();
+                    envs.insert("PGPASSWORD", self.password);
+
+                    ssh_config.ssh_command(&wipe_db_cmd, &envs)
+                },
+                None => {
+                    wipe_db_cmd.env("PGPASSWORD", self.password);
+                    wipe_db_cmd
+                },
+            };
+
+            let exit_status = cmd
                 .stdout(Stdio::null())
                 .spawn()?
                 .wait()?;
@@ -77,18 +96,32 @@ impl<'a> Destination for Postgres<'a> {
     fn write(&self, data: Bytes) -> Result<(), Error> {
         let s_port = self.port.to_string();
 
-        let mut process = Command::new("psql")
-            .env("PGPASSWORD", self.password)
-            .args([
-                "-h",
-                self.host,
-                "-p",
-                s_port.as_str(),
-                "-d",
-                self.database,
-                "-U",
-                self.username,
-            ])
+        let mut psql_cmd = Command::new("psql");
+        psql_cmd.args([
+            "-h",
+            self.host,
+            "-p",
+            s_port.as_str(),
+            "-d",
+            self.database,
+            "-U",
+            self.username,
+        ]);
+
+        let mut cmd = match &self.ssh_config {
+            Some(ssh_config) => {
+                let mut envs = HashMap::new();
+                envs.insert("PGPASSWORD", self.password);
+
+                ssh_config.ssh_command(&psql_cmd, &envs)
+            },
+            None => {
+                psql_cmd.env("PGPASSWORD", self.password);
+                psql_cmd
+            },
+        };
+
+        let mut process = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .spawn()?;
@@ -118,11 +151,11 @@ mod tests {
     use crate::destination::Destination;
 
     fn get_postgres() -> Postgres<'static> {
-        Postgres::new("localhost", 5453, "root", "root", "password", true)
+        Postgres::new("localhost", 5453, "root", "root", "password", true, None)
     }
 
     fn get_invalid_postgres() -> Postgres<'static> {
-        Postgres::new("localhost", 5453, "root", "root", "wrongpassword", true)
+        Postgres::new("localhost", 5453, "root", "root", "wrongpassword", true, None)
     }
 
     #[test]
