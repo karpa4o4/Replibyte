@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::io::{Error, Write};
 use std::process::{Command, Stdio};
 
+use crate::config::SshConfig;
 use crate::connector::Connector;
 use crate::destination::Destination;
 use crate::types::Bytes;
@@ -9,11 +11,12 @@ use crate::utils::{binary_exists, wait_for_command};
 pub struct MongoDB<'a> {
     uri: &'a str,
     database: &'a str,
+    ssh_config: Option<SshConfig>,
 }
 
 impl<'a> MongoDB<'a> {
-    pub fn new(uri: &'a str, database: &'a str) -> Self {
-        MongoDB { uri, database }
+    pub fn new(uri: &'a str, database: &'a str, ssh_config: Option<SshConfig>) -> Self {
+        MongoDB { uri, database, ssh_config }
     }
 }
 
@@ -29,14 +32,21 @@ impl<'a> Connector for MongoDB<'a> {
 
 impl<'a> Destination for MongoDB<'a> {
     fn write(&self, data: Bytes) -> Result<(), Error> {
-        let mut process = Command::new("mongorestore")
-            .args([
-                "--uri",
-                self.uri,
-                format!("--nsFrom='{}.*'", self.database).as_str(),
-                format!("--nsTo='{}.*'", self.database).as_str(),
-                "--archive",
-            ])
+        let mut dump_cmd = Command::new("mongorestore");
+        dump_cmd.args([
+            "--uri",
+            self.uri,
+            format!("--nsFrom='{}.*'", self.database).as_str(),
+            format!("--nsTo='{}.*'", self.database).as_str(),
+            "--archive",
+        ]);
+
+        let mut cmd = match &self.ssh_config {
+            Some(ssh_config) => ssh_config.ssh_command(&dump_cmd, &HashMap::new()),
+            None => dump_cmd,
+        };
+
+        let mut process = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .spawn()?;
@@ -57,8 +67,15 @@ fn check_connection_status(db: &MongoDB) -> Result<(), Error> {
         .stdout(Stdio::piped())
         .spawn()?;
 
-    let mut mongo_process = Command::new("mongosh")
-        .args([db.uri, "--quiet"])
+    let mut mongo_cmd = Command::new("mongosh");
+    mongo_cmd.args([db.uri, "--quiet"]);
+
+    let mut cmd = match &db.ssh_config {
+        Some(ssh_config) => ssh_config.ssh_command(&mongo_cmd, &HashMap::new()),
+        None => mongo_cmd,
+    };
+
+    let mut mongo_process = cmd
         .stdin(echo_process.stdout.take().unwrap())
         .stdout(Stdio::inherit())
         .spawn()?;
@@ -75,11 +92,11 @@ mod tests {
     use crate::destination::Destination;
 
     fn get_mongodb() -> MongoDB<'static> {
-        MongoDB::new("mongodb://root:password@localhost:27018", "test")
+        MongoDB::new("mongodb://root:password@localhost:27018", "test", None)
     }
 
     fn get_invalid_mongodb() -> MongoDB<'static> {
-        MongoDB::new("mongodb://root:wrongpassword@localhost:27018", "test")
+        MongoDB::new("mongodb://root:wrongpassword@localhost:27018", "test", None)
     }
 
     #[test]

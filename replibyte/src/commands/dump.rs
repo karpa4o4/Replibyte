@@ -469,7 +469,7 @@ where
                 }
                 ConnectionUri::MongoDB(uri, database) => {
                     let mut mongodb =
-                        destination::mongodb::MongoDB::new(uri.as_str(), database.as_str());
+                        destination::mongodb::MongoDB::new(uri.as_str(), database.as_str(), destination.ssh);
 
                     let task = FullRestoreTask::new(&mut mongodb, datastore, options);
                     task.run(progress_callback)?
