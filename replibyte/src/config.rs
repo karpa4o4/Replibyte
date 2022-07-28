@@ -226,6 +226,7 @@ impl SourceConfig {
 pub struct DestinationConfig {
     pub connection_uri: String,
     pub wipe_database: Option<bool>,
+    pub ssh: Option<SshConfig>,
 }
 
 impl DestinationConfig {
